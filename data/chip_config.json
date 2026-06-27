@@ -1,0 +1,11 @@
+{
+  "grid_size": 100,
+  "ambient_temp": 25.0,
+  "iterations": 300,
+  "material": "silicon",
+  "heat_sources": [
+    {"name": "CPU_Core", "x_range": [40, 60], "y_range": [40, 60], "power_temp": 120},
+    {"name": "Memory_Block", "x_range": [10, 20], "y_range": [70, 85], "power_temp": 70},
+    {"name": "IO_Block", "x_range": [75, 90], "y_range": [10, 25], "power_temp": 50}
+  ]
+}

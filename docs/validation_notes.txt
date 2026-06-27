@@ -1,0 +1,23 @@
+VALIDATION NOTES - Thermal Digital Twin
+
+=== IEEE Paper Reference ===
+ASIC Dimensions: 4.68mm x 5.97mm
+Power: 0.6W
+Natural Convection Result: ~53°C
+Forced Convection Result: ~31°C
+
+=== My Simulator Results ===
+Same dimensions use kiye: 4.68 x 5.97mm
+Power: 0.6W
+My Result: max temp=120℃ , avg=87.21℃
+status: critical(exceeds 100℃)
+
+=== Comparison ===
+Trend match: Yes
+Exact numbers match: No (expected)
+Observation: Both IEEE paper and simulator show 
+high heat in CPU core region. IEEE ~53°C natural 
+convection vs our 120°C due to no cooling model.
+
+Date: June 2026
+Author: Aryani Yadav

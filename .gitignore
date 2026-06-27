@@ -1,0 +1,7 @@
+.venv/
+build/
+dist/
+__pycache__/
+*.spec
+outputs/*.png
+outputs/*.pdf
