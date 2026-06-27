@@ -1,5 +1,7 @@
 import sys
 import os
+import json
+import csv
 import numpy as np
 import matplotlib
 matplotlib.use("QtAgg")
@@ -17,9 +19,10 @@ from matplotlib.figure import Figure
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QLineEdit, QPushButton, QLabel, QGroupBox, QScrollArea,
-    QGridLayout, QComboBox
+    QGridLayout, QComboBox, QFileDialog, QProgressBar, QMessageBox
 )
 from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt
 
 from fem_mesh import generate_mesh
 from fem_solver import run_fem_simulation
@@ -36,7 +39,7 @@ MATERIALS = {
 
 
 def resource_path(relative_path):
-    """ Get absolute path to bundled resource (works in dev AND in .exe) """
+    """Get absolute path to a bundled resource (works in dev mode and inside the .exe)."""
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -45,7 +48,7 @@ def resource_path(relative_path):
 
 
 def get_output_dir():
-    """ Output folder next to the .exe (or next to script when running in dev) """
+    """Return the outputs folder location, next to the .exe when frozen, or ../outputs in dev mode."""
     if getattr(sys, 'frozen', False):
         base_path = os.path.dirname(sys.executable)
     else:
@@ -90,8 +93,23 @@ QPushButton {
 QPushButton:hover {
     background-color: #74c7ec;
 }
+QPushButton:disabled {
+    background-color: #45475a;
+    color: #6c7086;
+}
 QLabel {
     color: #f0f0f0;
+}
+QProgressBar {
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    text-align: center;
+    color: white;
+    background-color: #313244;
+}
+QProgressBar::chunk {
+    background-color: #89b4fa;
+    border-radius: 3px;
 }
 """
 
@@ -100,7 +118,7 @@ class ThermalApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Thermal Digital Twin — ASIC FEM Simulator")
-        self.setGeometry(100, 100, 1350, 780)
+        self.setGeometry(100, 100, 1350, 820)
         self.setStyleSheet(DARK_STYLESHEET)
 
         main_widget = QWidget()
@@ -162,14 +180,41 @@ class ThermalApp(QMainWindow):
         self.run_btn.clicked.connect(self.run_simulation)
         left_layout.addWidget(self.run_btn)
 
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setValue(0)
+        left_layout.addWidget(self.progress_bar)
+
+        config_io_layout = QHBoxLayout()
+        self.save_config_btn = QPushButton("💾 Save Config")
+        self.save_config_btn.clicked.connect(self.save_config)
+        self.load_config_btn = QPushButton("📂 Load Config")
+        self.load_config_btn.clicked.connect(self.load_config)
+        config_io_layout.addWidget(self.save_config_btn)
+        config_io_layout.addWidget(self.load_config_btn)
+        left_layout.addLayout(config_io_layout)
+
+        export_layout = QHBoxLayout()
+        self.export_png_btn = QPushButton("🖼 Export PNG")
+        self.export_png_btn.clicked.connect(self.export_png)
+        self.export_csv_btn = QPushButton("📊 Export CSV")
+        self.export_csv_btn.clicked.connect(self.export_csv)
+        export_layout.addWidget(self.export_png_btn)
+        export_layout.addWidget(self.export_csv_btn)
+        left_layout.addLayout(export_layout)
+
         self.report_btn = QPushButton("📄 Generate PDF Report")
         self.report_btn.clicked.connect(self.export_report)
         left_layout.addWidget(self.report_btn)
 
         self.status_label = QLabel("Ready.")
+        self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("color: #a6e3a1; padding: 6px;")
         left_layout.addWidget(self.status_label)
         left_layout.addStretch()
+
+        version_label = QLabel("v1.1 | MAH Quantum © 2026")
+        version_label.setStyleSheet("color: #6c7086; font-size: 10px; padding: 6px;")
+        left_layout.addWidget(version_label)
 
         scroll = QScrollArea()
         scroll.setWidget(left_panel)
@@ -205,39 +250,98 @@ class ThermalApp(QMainWindow):
 
         main_layout.addWidget(right_panel)
 
+        self.last_report = None
+        self.last_material = None
+        self.last_config = None
+        self.last_heatmap_path = None
+        self.last_history_path = None
+        self.last_T = None
+        self.last_grid = None
+
+    def _validated_float(self, widget, label, min_value=None):
+        try:
+            val = float(widget.text())
+        except ValueError:
+            raise ValueError(f"'{label}' must be a number.")
+        if min_value is not None and val <= min_value:
+            raise ValueError(f"'{label}' must be greater than {min_value}.")
+        return val
+
+    def _validated_int(self, widget, label, min_value=1):
+        try:
+            val = int(widget.text())
+        except ValueError:
+            raise ValueError(f"'{label}' must be a whole number.")
+        if val < min_value:
+            raise ValueError(f"'{label}' must be at least {min_value}.")
+        return val
+
+    def _build_config(self):
+        width = self._validated_float(self.width_input, "Width", min_value=0)
+        height = self._validated_float(self.height_input, "Height", min_value=0)
+        nx = self._validated_int(self.nx_input, "Mesh Nx", min_value=2)
+        ny = self._validated_int(self.ny_input, "Mesh Ny", min_value=2)
+        ambient = self._validated_float(self.ambient_input, "Ambient Temp")
+        iterations = self._validated_int(self.iterations_input, "Iterations", min_value=1)
+        selected_material = self.material_dropdown.currentText()
+
+        heat_sources = []
+        for name_in, xr_in, yr_in, pt_in in self.source_inputs:
+            try:
+                x0, x1 = map(float, xr_in.text().split(","))
+                y0, y1 = map(float, yr_in.text().split(","))
+                power = float(pt_in.text())
+            except ValueError:
+                raise ValueError(f"Invalid range/power for heat source '{name_in.text()}'. Use format like 8,12")
+            heat_sources.append({
+                "name": name_in.text(),
+                "x_range": [x0, x1],
+                "y_range": [y0, y1],
+                "power_temp": power
+            })
+
+        return {
+            "width": width,
+            "height": height,
+            "nx": nx,
+            "ny": ny,
+            "ambient_temp": ambient,
+            "iterations": iterations,
+            "conductivity": MATERIALS[selected_material],
+            "rho_c": 1.0,
+            "dt": 0.5,
+            "cooling_rate": 0.3,
+            "material": selected_material,
+            "heat_sources": heat_sources
+        }
+
     def run_simulation(self):
         try:
+            self.run_btn.setEnabled(False)
+            self.progress_bar.setValue(10)
+            self.status_label.setStyleSheet("color: #a6e3a1; padding: 6px;")
+            self.status_label.setText("Validating inputs...")
+            QApplication.processEvents()
+
+            config = self._build_config()
+            selected_material = config["material"]
+
+            self.progress_bar.setValue(30)
+            self.status_label.setText("Generating mesh...")
+            QApplication.processEvents()
+
+            nodes, elements = generate_mesh(config["width"], config["height"], config["nx"], config["ny"])
+
+            self.progress_bar.setValue(50)
             self.status_label.setText("Running FEM simulation...")
             QApplication.processEvents()
 
-            selected_material = self.material_dropdown.currentText()
-
-            config = {
-                "width": float(self.width_input.text()),
-                "height": float(self.height_input.text()),
-                "nx": int(self.nx_input.text()),
-                "ny": int(self.ny_input.text()),
-                "ambient_temp": float(self.ambient_input.text()),
-                "iterations": int(self.iterations_input.text()),
-                "conductivity": MATERIALS[selected_material],
-                "rho_c": 1.0,
-                "dt": 0.5,
-                "heat_sources": []
-            }
-
-            for name_in, xr_in, yr_in, pt_in in self.source_inputs:
-                x0, x1 = map(float, xr_in.text().split(","))
-                y0, y1 = map(float, yr_in.text().split(","))
-                config["heat_sources"].append({
-                    "name": name_in.text(),
-                    "x_range": [x0, x1],
-                    "y_range": [y0, y1],
-                    "power_temp": float(pt_in.text())
-                })
-
-            nodes, elements = generate_mesh(config["width"], config["height"], config["nx"], config["ny"])
             T, history = run_fem_simulation(nodes, elements, config)
             report = detect_hotspots(T, threshold=80)
+
+            self.progress_bar.setValue(80)
+            self.status_label.setText("Rendering results...")
+            QApplication.processEvents()
 
             grid = reshape_to_grid(T, config["nx"], config["ny"])
 
@@ -263,10 +367,8 @@ class ThermalApp(QMainWindow):
             ax1.set_ylabel("Height (mm)")
             self.heatmap_canvas.draw()
 
-            # Save heatmap image to output folder (next to .exe)
             heatmap_path = os.path.join(get_output_dir(), "current_heatmap.png")
             self.heatmap_fig.savefig(heatmap_path, dpi=150, facecolor=self.heatmap_fig.get_facecolor())
-            self.last_heatmap_path = heatmap_path
 
             self.history_fig.clear()
             ax2 = self.history_fig.add_subplot(111)
@@ -277,30 +379,123 @@ class ThermalApp(QMainWindow):
             ax2.grid(True, color="#45475a", linestyle="--", linewidth=0.5)
             self.history_canvas.draw()
 
+            history_path = os.path.join(get_output_dir(), "current_history.png")
+            self.history_fig.savefig(history_path, dpi=150, facecolor=self.history_fig.get_facecolor())
+            self.last_history_path = history_path
+
             self.max_label.setText(f"Max Temp: {report['max_temp']:.2f} °C")
             self.avg_label.setText(f"Avg Temp: {report['avg_temp']:.2f} °C")
             self.var_label.setText(f"Variance: {report['variance']:.2f}")
             self.count_label.setText(f"Hotspot Cells: {report['hotspot_count']}")
 
+            self.progress_bar.setValue(100)
             self.status_label.setText(f"Simulation Completed ({selected_material}).")
 
-            # Store for PDF report
             self.last_report = report
             self.last_material = selected_material
             self.last_config = config
+            self.last_heatmap_path = heatmap_path
+            self.last_T = T
+            self.last_grid = grid
 
+        except ValueError as ve:
+            self.status_label.setStyleSheet("color: #f38ba8; padding: 6px;")
+            self.status_label.setText(f"Input Error: {ve}")
+            self.progress_bar.setValue(0)
         except Exception as e:
+            self.status_label.setStyleSheet("color: #f38ba8; padding: 6px;")
             self.status_label.setText(f"Error: {e}")
+            self.progress_bar.setValue(0)
+        finally:
+            self.run_btn.setEnabled(True)
+
+    def save_config(self):
+        try:
+            config = self._build_config()
+            path, _ = QFileDialog.getSaveFileName(self, "Save Configuration", "chip_config.json", "JSON Files (*.json)")
+            if not path:
+                return
+            with open(path, "w") as f:
+                json.dump(config, f, indent=2)
+            self.status_label.setText(f"Configuration saved: {os.path.basename(path)}")
+        except ValueError as ve:
+            self.status_label.setText(f"Input Error: {ve}")
+        except Exception as e:
+            self.status_label.setText(f"Save Error: {e}")
+
+    def load_config(self):
+        try:
+            path, _ = QFileDialog.getOpenFileName(self, "Load Configuration", "", "JSON Files (*.json)")
+            if not path:
+                return
+            with open(path, "r") as f:
+                config = json.load(f)
+
+            self.width_input.setText(str(config.get("width", 20.0)))
+            self.height_input.setText(str(config.get("height", 20.0)))
+            self.nx_input.setText(str(config.get("nx", 40)))
+            self.ny_input.setText(str(config.get("ny", 40)))
+            self.ambient_input.setText(str(config.get("ambient_temp", 25.0)))
+            self.iterations_input.setText(str(config.get("iterations", 100)))
+
+            material = config.get("material", "Silicon")
+            idx = self.material_dropdown.findText(material)
+            if idx >= 0:
+                self.material_dropdown.setCurrentIndex(idx)
+
+            sources = config.get("heat_sources", [])
+            for i, (name_in, xr_in, yr_in, pt_in) in enumerate(self.source_inputs):
+                if i < len(sources):
+                    s = sources[i]
+                    name_in.setText(s.get("name", name_in.text()))
+                    xr_in.setText(f"{s['x_range'][0]},{s['x_range'][1]}")
+                    yr_in.setText(f"{s['y_range'][0]},{s['y_range'][1]}")
+                    pt_in.setText(str(s.get("power_temp", 100)))
+
+            self.status_label.setText(f"Configuration loaded: {os.path.basename(path)}")
+        except Exception as e:
+            self.status_label.setText(f"Load Error: {e}")
+
+    def export_png(self):
+        if self.last_heatmap_path is None:
+            self.status_label.setText("Run a simulation first!")
+            return
+        try:
+            path, _ = QFileDialog.getSaveFileName(self, "Export Heatmap as PNG", "thermal_heatmap.png", "PNG Files (*.png)")
+            if not path:
+                return
+            self.heatmap_fig.savefig(path, dpi=200, facecolor=self.heatmap_fig.get_facecolor())
+            self.status_label.setText(f"Heatmap exported: {os.path.basename(path)}")
+        except Exception as e:
+            self.status_label.setText(f"PNG Export Error: {e}")
+
+    def export_csv(self):
+        if self.last_grid is None:
+            self.status_label.setText("Run a simulation first!")
+            return
+        try:
+            path, _ = QFileDialog.getSaveFileName(self, "Export Temperature Data as CSV", "temperature_data.csv", "CSV Files (*.csv)")
+            if not path:
+                return
+            with open(path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([f"col_{i}" for i in range(self.last_grid.shape[1])])
+                for row in self.last_grid:
+                    writer.writerow(row.tolist())
+            self.status_label.setText(f"Temperature data exported: {os.path.basename(path)}")
+        except Exception as e:
+            self.status_label.setText(f"CSV Export Error: {e}")
 
     def export_report(self):
         try:
-            if not hasattr(self, 'last_report'):
+            if self.last_report is None:
                 self.status_label.setText("Run a simulation first!")
                 return
             report_path = os.path.join(get_output_dir(), "thermal_report.pdf")
             path = generate_pdf_report(
                 self.last_report, self.last_material, self.last_config,
-                self.last_heatmap_path, save_path=report_path
+                self.last_heatmap_path, history_image_path=self.last_history_path,
+                save_path=report_path
             )
             self.status_label.setText(f"Report saved: {path}")
         except Exception as e:
@@ -310,7 +505,10 @@ class ThermalApp(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     window = ThermalApp()
-    window.setWindowIcon(QIcon(resource_path("assets/logo.ico")))
+    try:
+        window.setWindowIcon(QIcon(resource_path("assets/logo.ico")))
+    except Exception:
+        pass
     window.show()
     sys.exit(app.exec())
 
