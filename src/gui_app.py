@@ -300,6 +300,10 @@ class ThermalApp(QMainWindow):
                 "power_temp": power
             })
 
+        # NOTE: "rho_c" and "dt" are intentionally NOT hardcoded here anymore.
+        # fem_solver.py now picks a physically correct rho_c automatically based on
+        # the selected material's conductivity (RHO_C_TABLE), and uses a physically
+        # meaningful default dt (seconds) unless you explicitly override it below.
         return {
             "width": width,
             "height": height,
@@ -308,8 +312,6 @@ class ThermalApp(QMainWindow):
             "ambient_temp": ambient,
             "iterations": iterations,
             "conductivity": MATERIALS[selected_material],
-            "rho_c": 1.0,
-            "dt": 0.5,
             "cooling_rate": 0.3,
             "material": selected_material,
             "heat_sources": heat_sources
