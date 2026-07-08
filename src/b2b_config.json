@@ -1,0 +1,8 @@
+{
+  "client_name": "MAH Quantum",
+  "default_die_width_mm": 4.68,
+  "default_die_height_mm": 5.97,
+  "default_material": "Silicon",
+  "report_footer_text": "Confidential - Prepared using Thermal Digital Twin (MAH Quantum)",
+  "report_logo_path": "assets/logo.png"
+}

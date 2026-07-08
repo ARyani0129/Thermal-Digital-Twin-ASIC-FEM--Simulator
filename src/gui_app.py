@@ -29,6 +29,9 @@ from fem_solver import run_fem_simulation
 from hotspot import detect_hotspots
 from heatmap import reshape_to_grid
 from report_generator import generate_pdf_report
+from license_manager import validate_license
+from error_logger import install_global_handler
+from config_loader import load_config
 
 MATERIALS = {
     "Silicon": 148,
@@ -128,8 +131,9 @@ class ThermalApp(QMainWindow):
         left_panel = QWidget()
         left_panel.setFixedWidth(320)
         left_layout = QVBoxLayout(left_panel)
+        self.b2b_config = load_config()
 
-        header = QLabel("MAH QUANTUM\nThermal Digital Twin")
+        header = QLabel(f"{self.b2b_config['client_name']}\nThermal Digital Twin")
         header.setStyleSheet("font-size: 16px; font-weight: bold; color: #89b4fa; padding: 8px;")
         left_layout.addWidget(header)
 
@@ -505,7 +509,15 @@ class ThermalApp(QMainWindow):
 
 
 def main():
+    install_global_handler()
+
     app = QApplication(sys.argv)
+
+    is_valid, msg = validate_license()
+    if not is_valid:
+        QMessageBox.critical(None, "License Error", msg)
+        sys.exit(1)
+
     window = ThermalApp()
     try:
         window.setWindowIcon(QIcon(resource_path("assets/logo.ico")))

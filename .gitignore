@@ -7,3 +7,12 @@ outputs/*.png
 outputs/*.pdf
 *.pyc
 .DS_Store
+src/license.json
+src/generate_key.py
+src/app_errors.log
+TDT_Test/
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/

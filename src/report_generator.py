@@ -45,8 +45,9 @@ def _find_logo():
 
 
 class _HeaderFooterCanvas:
-    def __init__(self, material):
+    def __init__(self, material, b2b_config=None):
         self.material = material
+        self.b2b_config = b2b_config or {}
 
     def __call__(self, canvas_obj, doc):
         canvas_obj.saveState()
@@ -86,7 +87,7 @@ class _HeaderFooterCanvas:
 
         canvas_obj.setFillColor(MUTED_TEXT)
         canvas_obj.setFont("Helvetica", 8)
-        canvas_obj.drawString(20 * mm, 10 * mm, "Confidential — MAH Quantum Engineering Document")
+        canvas_obj.drawString(20 * mm, 10 * mm, self.b2b_config.get("report_footer_text", "Confidential — MAH Quantum Engineering Document"))
         canvas_obj.drawRightString(page_width - 20 * mm, 10 * mm, f"Page {doc.page}")
         canvas_obj.restoreState()
 
@@ -159,7 +160,8 @@ def generate_pdf_report(report, material, config, heatmap_image_path,
         topMargin=36 * mm, bottomMargin=20 * mm,
         leftMargin=20 * mm, rightMargin=20 * mm
     )
-
+    from config_loader import load_config
+    b2b_config = load_config()
     elements = []
 
     # ================= PAGE 1: Executive Summary =================
@@ -226,9 +228,12 @@ def generate_pdf_report(report, material, config, heatmap_image_path,
 
     status_style = ParagraphStyle("Status", fontName="Helvetica-Bold", fontSize=10, textColor=severity_color)
     elements.append(Paragraph(f"Status: {severity_label}", status_style))
-    elements.append(PageBreak())
+    elements.append(Spacer(1, 12))
 
-    # ================= PAGE 2: Thermal Distribution Map =================
+    # ================= Thermal Distribution Map =================
+    # Note: no forced PageBreak here anymore. ReportLab flows content
+    # naturally, filling remaining space on the current page before
+    # starting a new one, which avoids leaving a near-empty orphan page.
     elements.append(_section_title("Thermal Distribution Map"))
     if heatmap_image_path and os.path.exists(heatmap_image_path):
         try:
@@ -293,7 +298,7 @@ def generate_pdf_report(report, material, config, heatmap_image_path,
         "validated against physical measurements before production sign-off.", closing_style
     ))
 
-    on_page = _HeaderFooterCanvas(material)
+    on_page = _HeaderFooterCanvas(material, b2b_config)
     doc.build(elements, onFirstPage=on_page, onLaterPages=on_page)
 
     return save_path
