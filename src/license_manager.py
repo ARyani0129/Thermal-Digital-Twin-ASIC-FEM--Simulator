@@ -23,7 +23,34 @@ LICENSE_FILENAME = "license.json"
 
 
 def get_machine_id():
-    """Returns a stable hardware-based identifier for this machine."""
+    """
+    Returns a stable hardware-based identifier for this machine.
+
+    uuid.getnode() is NOT reliable on its own - if Python can't find a real
+    network MAC address (common with WiFi adapters using randomized MACs,
+    or VPN/virtual adapters), it silently falls back to a random number that
+    changes on every run. This caused license validation to fail even on the
+    correct machine.
+
+    Instead, we try to read the Windows motherboard/BIOS UUID first (genuinely
+    fixed per machine), and only fall back to uuid.getnode() on non-Windows
+    systems or if the BIOS UUID read fails.
+    """
+    if sys.platform == "win32":
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["wmic", "csproduct", "get", "UUID"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+            if len(lines) >= 2 and lines[1].upper() != "UUID":
+                return lines[1]
+        except Exception:
+            pass
+
+    # Fallback for non-Windows or if wmic failed
     return str(uuid.getnode())
 
 
