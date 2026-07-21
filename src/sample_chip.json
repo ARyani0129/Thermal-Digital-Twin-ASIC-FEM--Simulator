@@ -1,0 +1,33 @@
+{
+  "die_dimensions": {
+    "width_mm": 12.0,
+    "height_mm": 12.0
+  },
+  "materials": ["Silicon", "Copper"],
+  "blocks": [
+    {
+      "name": "CPU_Core_0",
+      "x_min": 2.0,
+      "x_max": 5.0,
+      "y_min": 2.0,
+      "y_max": 5.0,
+      "power_watts": 12.5
+    },
+    {
+      "name": "NPU_Accelerator",
+      "x_min": 7.0,
+      "x_max": 10.0,
+      "y_min": 3.0,
+      "y_max": 8.0,
+      "power_watts": 18.0
+    },
+    {
+      "name": "SRAM_Cache",
+      "x_min": 1.5,
+      "x_max": 5.0,
+      "y_min": 7.0,
+      "y_max": 10.5,
+      "power_watts": 4.0
+    }
+  ]
+}
