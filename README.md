@@ -56,4 +56,4 @@ Thermal_Digital_Twin/
 
 └── project_evidence/ # Screenshots, demo materials
 ## Author
-Aryani Yadav (Mahi) — AI System Engineering R&D Intern, MAH Quantum (June–September 2026)
+Aryani Yadav — AI System Engineering R&D Intern, MAH Quantum (June–September 2026)
