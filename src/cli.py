@@ -1,7 +1,7 @@
+# src/cli.py
 import argparse
 import sys
 import os
-import json
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -16,13 +16,19 @@ from hotspot import detect_hotspots
 from heatmap import reshape_to_grid
 from report_generator import generate_pdf_report
 
+# 3D modules integration
+from fem_mesh_3d import generate_layered_mesh
+from fem_solver_3d import run_fem_simulation_3d
+
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Thermal Digital Twin ASIC FEM Simulator — Command Line Interface"
+        description="Thermal Digital Twin ASIC FEM Simulator — Command Line Interface (2D & 3D)"
     )
     parser.add_argument("--layout", type=str, required=True,
                         help="Path to layout file (.json)")
+    parser.add_argument("--mode", type=str, choices=["2d", "3d"], default="2d",
+                        help="Simulation mode: 2d (default) or 3d layered conduction")
     parser.add_argument("--output", type=str, default="thermal_report.pdf",
                         help="Output PDF report path")
     parser.add_argument("--nx", type=int, default=40, help="Mesh nodes in X (default 40)")
@@ -39,7 +45,7 @@ def main():
         sys.exit(1)
 
     print("=" * 60)
-    print("   ASIC FEM THERMAL SIMULATOR - CLI")
+    print(f"   ASIC FEM THERMAL SIMULATOR - CLI ({args.mode.upper()} MODE)")
     print("=" * 60)
 
     # 1. Load layout
@@ -48,7 +54,30 @@ def main():
     heat_sources = layout_data["heat_sources"]
     print(f"[OK] Layout loaded: {width}mm x {height}mm, {len(heat_sources)} heat sources")
 
-    # 2. Build config dict (same shape gui_app.py builds)
+    if args.mode == "3d":
+        print("[*] Generating 3D Layered Mesh...")
+        layers = [
+            {"name": "Die", "thickness_mm": 0.2, "conductivity": 130.0, "rho_c": 1.7e6},
+            {"name": "TIM", "thickness_mm": 0.05, "conductivity": 4.0, "rho_c": 3.0e6},
+            {"name": "HeatSpreader", "thickness_mm": 1.0, "conductivity": 400.0, "rho_c": 3.5e6}
+        ]
+        nodes, elements, element_material, _ = generate_layered_mesh(
+            width_mm=width, height_mm=height, layers=layers, nx=args.nx, ny=args.ny
+        )
+        config = {
+            "width": width, "height": height,
+            "ambient_temp": args.ambient_temp,
+            "iterations": args.iterations,
+            "dt": 0.1,
+            "heat_sources": heat_sources
+        }
+        print("[*] Running 3D FEM Simulation...")
+        T, history = run_fem_simulation_3d(nodes, elements, element_material, layers, config)
+        print(f"[OK] 3D Max Temp: {np.max(T):.2f} C")
+        print(f"[SUCCESS] 3D Simulation complete.")
+        return
+
+    # 2. Build config dict for 2D mode
     config = {
         "width": width,
         "height": height,

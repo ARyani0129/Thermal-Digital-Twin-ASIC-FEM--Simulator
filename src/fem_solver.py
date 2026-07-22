@@ -70,7 +70,7 @@ def run_fem_simulation(nodes, elements, config):
 
     k = config.get("conductivity", 148)
     rho_c = config.get("rho_c", RHO_C_TABLE.get(k, 1.63e6))
-    dt = config.get("dt", 0.1)          # seconds — physically meaningful time step
+    dt = config.get("dt", 0.1)          # seconds
     steps = config["iterations"]
     ambient = config["ambient_temp"]
 
@@ -83,9 +83,13 @@ def run_fem_simulation(nodes, elements, config):
     n_nodes = nodes.shape[0]
     T = np.full(n_nodes, ambient, dtype=float)
 
+    # Build a heat GENERATION vector Q (Watts distributed per node).
+    # Heat sources ADD thermal energy each step instead of clamping
+    # node temperature to the wattage value (that was the bug).
+    Q = np.zeros(n_nodes)
     source_node_groups = []
     for src in config["heat_sources"]:
-        # x_range/y_range come from the GUI in mm — convert to meters to match node coordinates
+        # x_range/y_range come in mm -> convert to meters to match node coordinates
         x0, x1 = src["x_range"][0] / 1000.0, src["x_range"][1] / 1000.0
         y0, y1 = src["y_range"][0] / 1000.0, src["y_range"][1] / 1000.0
         mask = (
@@ -94,15 +98,17 @@ def run_fem_simulation(nodes, elements, config):
         )
         ids = np.where(mask)[0]
         source_node_groups.append((ids, src["power_temp"]))
-        T[ids] = src["power_temp"]
+        if len(ids) > 0:
+            # distribute this block's power (W) evenly across its covered nodes
+            Q[ids] += src["power_temp"] / len(ids)
 
-    # mask of which nodes are "free" (not fixed heat sources)
+    # mask of which nodes are inside a heat-source region
     is_source = np.zeros(n_nodes, dtype=bool)
     for ids, _ in source_node_groups:
         is_source[ids] = True
     free_mask = ~is_source
 
-    # Only outer-edge nodes are physically exposed to convective air cooling —
+    # Only outer-edge nodes are physically exposed to convective air cooling --
     # interior free nodes lose/gain heat only through conduction, as in a real chip.
     boundary_mask = get_boundary_mask(nodes, config["width"], config["height"])
     cooling_mask = free_mask & boundary_mask
@@ -112,21 +118,18 @@ def run_fem_simulation(nodes, elements, config):
 
     history = []
     for step in range(steps):
-        b = M.dot(T)
+        b = M.dot(T) + dt * Q
+
         T_new = solver.solve(b)
 
         # Convective cooling: ONLY at the die's exposed boundary nodes
         T_new[cooling_mask] -= cooling_rate * (T_new[cooling_mask] - ambient)
 
-        # Re-apply fixed heat source temperatures
-        for ids, temp in source_node_groups:
-            T_new[ids] = temp
-
         T = T_new
         history.append(np.max(T))
 
         if step % 50 == 0:
-            print(f"FEM Iteration {step}/{steps} | Max Temp: {np.max(T):.2f}°C")
+            print(f"FEM Iteration {step}/{steps} | Max Temp: {np.max(T):.2f}\u00b0C")
 
     print("FEM Simulation Completed.")
     return T, history
