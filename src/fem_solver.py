@@ -12,6 +12,11 @@ RHO_C_TABLE = {
     2200: 1.79e6,   # Diamond
 }
 
+# Typical silicon die thickness (meters). The mesh/nodes are 2D (x,y only),
+# so without this the mass matrix implicitly assumed a 1-meter-thick chip,
+# making the thermal mass ~2000x too large and heat input negligible.
+DIE_THICKNESS_M = 0.0005  # ~500 microns
+
 
 def shape_functions(xi, eta):
     N = 0.25 * np.array([
@@ -44,7 +49,7 @@ def element_matrices(coords, k, rho_c):
             dN_xy = invJ @ dN
 
             Ke += k * (dN_xy.T @ dN_xy) * detJ
-            Me += rho_c * np.outer(N, N) * detJ
+            Me += rho_c * DIE_THICKNESS_M * np.outer(N, N) * detJ
 
     return Ke, Me
 
@@ -70,7 +75,7 @@ def run_fem_simulation(nodes, elements, config):
 
     k = config.get("conductivity", 148)
     rho_c = config.get("rho_c", RHO_C_TABLE.get(k, 1.63e6))
-    dt = config.get("dt", 0.1)          # seconds
+    dt = config.get("dt", 0.001)          # seconds
     steps = config["iterations"]
     ambient = config["ambient_temp"]
 
