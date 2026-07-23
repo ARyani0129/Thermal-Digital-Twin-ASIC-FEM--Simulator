@@ -3,6 +3,16 @@ import os
 import re
 
 class LayoutLoader:
+    # Used when a layout JSON doesn't specify its own "layers" stack for
+    # 3D mode -- a reasonable default die/TIM/spreader package, not a
+    # claim about any specific real part. cli.py's --mode 3d should read
+    # layers from here (via load_layout) instead of hardcoding its own.
+    DEFAULT_3D_LAYERS = [
+        {"name": "Die", "thickness_mm": 0.2, "conductivity": 130.0, "rho_c": 1.7e6},
+        {"name": "TIM", "thickness_mm": 0.05, "conductivity": 4.0, "rho_c": 3.0e6},
+        {"name": "HeatSpreader", "thickness_mm": 1.0, "conductivity": 400.0, "rho_c": 3.5e6},
+    ]
+
     @staticmethod
     def load_layout(file_path):
         ext = os.path.splitext(file_path)[1].lower()
@@ -29,7 +39,8 @@ class LayoutLoader:
         return {
             "chip_size": (chip_dim["width_mm"], chip_dim["height_mm"]),
             "heat_sources": heat_sources,
-            "materials": data.get("materials", ["Silicon"])
+            "materials": data.get("materials", ["Silicon"]),
+            "layers": data.get("layers", LayoutLoader.DEFAULT_3D_LAYERS),
         }
 
     @staticmethod
@@ -80,5 +91,6 @@ class LayoutLoader:
         return {
             "chip_size": (die_width, die_height),
             "heat_sources": heat_sources,
-            "materials": ["Silicon"]
+            "materials": ["Silicon"],
+            "layers": LayoutLoader.DEFAULT_3D_LAYERS,
         }

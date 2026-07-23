@@ -56,11 +56,8 @@ def main():
 
     if args.mode == "3d":
         print("[*] Generating 3D Layered Mesh...")
-        layers = [
-            {"name": "Die", "thickness_mm": 0.2, "conductivity": 130.0, "rho_c": 1.7e6},
-            {"name": "TIM", "thickness_mm": 0.05, "conductivity": 4.0, "rho_c": 3.0e6},
-            {"name": "HeatSpreader", "thickness_mm": 1.0, "conductivity": 400.0, "rho_c": 3.5e6}
-        ]
+        layers = layout_data.get("layers", LayoutLoader.DEFAULT_3D_LAYERS)
+        print(f"[OK] Using {len(layers)}-layer stack: {', '.join(l['name'] for l in layers)}")
         nodes, elements, element_material, _ = generate_layered_mesh(
             width_mm=width, height_mm=height, layers=layers, nx=args.nx, ny=args.ny
         )
